@@ -494,7 +494,7 @@ class MoveIt2:
 
     def plan_async(
         self,
-        pose: Optional[Union[PoseStamped, Pose]] = None,
+        pose: Optional[Union[PoseStamped, Pose, List[Pose]]] = None,
         position: Optional[Union[Point, Tuple[float, float, float]]] = None,
         quat_xyzw: Optional[
             Union[Quaternion, Tuple[float, float, float, float]]
@@ -521,6 +521,7 @@ class MoveIt2:
         """
 
         pose_stamped = None
+        waypoints = None
         if pose is not None:
             if isinstance(pose, PoseStamped):
                 pose_stamped = pose
@@ -534,6 +535,20 @@ class MoveIt2:
                     ),
                     pose=pose,
                 )
+            elif isinstance(pose, List):
+                for p in pose:
+                    if not isinstance(p, Pose):
+                        raise RuntimeError("pose list need to consist of PoseStamped")
+                pose_stamped = PoseStamped(
+                    header=Header(
+                        stamp=self._node.get_clock().now().to_msg(),
+                        frame_id=frame_id
+                        if frame_id is not None
+                        else self.__base_link_name,
+                    ),
+                    pose=pose[-1],
+                )
+                waypoints = pose
 
             self.set_position_goal(
                 position=pose_stamped.pose.position,
@@ -608,6 +623,7 @@ class MoveIt2:
         # Plan trajectory asynchronously by service call
         if cartesian:
             future = self._plan_cartesian_path(
+                targets = waypoints,
                 frame_id=pose_stamped.header.frame_id
                 if pose_stamped is not None
                 else frame_id
@@ -1738,7 +1754,7 @@ class MoveIt2:
 
     def _plan_cartesian_path(
         self,
-        targets: Union[Pose, List[Pose]] = None,
+        targets: Optional[Union[Pose, List[Pose]]] = None,
         max_step: float = 0.0025,
         frame_id: Optional[str] = None,
     ) -> Optional[Future]:
@@ -1772,20 +1788,25 @@ class MoveIt2:
             orientation_constraint.header.stamp = stamp
         # no header in joint_constraint message type
 
-        target_pose = Pose()
-        target_pose.position = (
-            self.__move_action_goal.request.goal_constraints[-1]
-            .position_constraints[-1]
-            .constraint_region.primitive_poses[0]
-            .position
-        )
-        target_pose.orientation = (
-            self.__move_action_goal.request.goal_constraints[-1]
-            .orientation_constraints[-1]
-            .orientation
-        )
+        if targets is None:
+            self._node.get_logger().info("single target")
+            target_pose = Pose()
+            target_pose.position = (
+                self.__move_action_goal.request.goal_constraints[-1]
+                .position_constraints[-1]
+                .constraint_region.primitive_poses[0]
+                .position
+            )
+            target_pose.orientation = (
+                self.__move_action_goal.request.goal_constraints[-1]
+                .orientation_constraints[-1]
+                .orientation
+            )
 
-        self.__cartesian_path_request.waypoints = [target_pose]
+            self.__cartesian_path_request.waypoints = [target_pose]
+        else:
+            self._node.get_logger().info("multiple target")
+            self.__cartesian_path_request.waypoints = targets
         self.__cartesian_path_request.avoid_collisions = True
 
         if not self._plan_cartesian_path_service.service_is_ready():
