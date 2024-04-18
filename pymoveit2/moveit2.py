@@ -487,7 +487,10 @@ class MoveIt2:
         while not future.done():
             rate.sleep()
 
-        return self.get_trajectory(future, cartesian=cartesian)
+        # self._node.get_logger().warn(f"{future.result()}")
+        return future.result()
+
+        # return self.get_trajectory(future, cartesian=cartesian)
 
     def plan_async(
         self,
@@ -1783,6 +1786,7 @@ class MoveIt2:
         )
 
         self.__cartesian_path_request.waypoints = [target_pose]
+        self.__cartesian_path_request.avoid_collisions = True
 
         if not self._plan_cartesian_path_service.service_is_ready():
             self._node.get_logger().warn(
